@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from pprint import pprint
 
 from db import User
+from db import SessionContext
 
 fake_users_db = {
     "johndoe": {
@@ -53,14 +54,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="oauth/token")
 
-
-def fake_hash_password(password: str):
-    return "fakehashed" + password
-
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
+session_context = SessionContext(echo=True)
 
 class User(BaseModel):
     username: str
@@ -72,17 +68,21 @@ class User(BaseModel):
 class UserInDB(User):
     hashed_password: str
 
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
+def get_user(username: str = None, token: str = None):
+    if token is not None:
+        user = session_context.get_current_user(token)
+    elif username is not None:
+        user = session_context.get_user(username)
+    print(user)
+    return user
+    # if username in db:
+    #     user_dict = db[username]
+    #     return UserInDB(**user_dict)
 
 def fake_decode_token(token):
     # This doesn't provide any security at all
     # Check the next version
-    user = get_user(fake_users_db, token)
+    user = get_user(token=token)
     return user
 
 
@@ -107,29 +107,25 @@ async def get_current_active_user(
 
 @app.post("/oauth/token")
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
-    user_dict = fake_users_db.get(form_data.username)
-    if not user_dict:
+    print(form_data.username)
+    user = get_user(form_data.username)
+    if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
-    user = UserInDB(**user_dict)
-    hashed_password = fake_hash_password(form_data.password)
-    if not hashed_password == user.hashed_password:
+    # user_dict = user.as_dict()
+    pwcheck = session_context.check_password(form_data.password, user)
+    if not pwcheck:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
-    print("Hi!", user)
+
+    token = session_context.create_session(user)
+
     return {
-#        "access_token": "9RJ1DqeEVhZOxWzR5eD9443HORy2B-3kX8aWxWSzPG4",
-        "access_token": user.username,
+        "access_token": token,
         "username": user.username,
         "token_type": "bearer",
-        "scope":"public",
-        "create_at": 1728992993
+        "scope": "public",
+        "create_at": user.create_at
     }
 
-
-@app.get("/api/v8/users/me")
-async def read_users_me(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    return current_user
 
 @app.options("/api/v8/users/current")
 async def read_users_me(
@@ -146,7 +142,7 @@ async def read_users_me(
 @app.put("/api/v8/users/current")
 async def read_users_me(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    data:dict
+    data: dict
 ):
     # UserInDB(username='stud@isu.ru', email='stud@isu.ru', full_name='Alice Wonderson', disabled=False, hashed_password='****')
     # {'user': {'extra_fields': {'data': {'course_variant': '',
