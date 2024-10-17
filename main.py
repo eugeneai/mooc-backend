@@ -79,28 +79,23 @@ def get_user(username: str = None, token: str = None):
     #     user_dict = db[username]
     #     return UserInDB(**user_dict)
 
-def fake_decode_token(token):
-    # This doesn't provide any security at all
-    # Check the next version
-    user = get_user(token=token)
-    return user
-
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
-    user = fake_decode_token(token)
+    sess, user = session_context.get_current_user(token)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return user
+    return (sess, user)
 
 
 async def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    if current_user.disabled:
+    sess, user = current_user
+    if user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
@@ -108,7 +103,7 @@ async def get_current_active_user(
 @app.post("/oauth/token")
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     print(form_data.username)
-    user = get_user(form_data.username)
+    sess, user = get_user(form_data.username)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     # user_dict = user.as_dict()
@@ -131,33 +126,66 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
 async def read_users_me(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
-    return current_user
+    return current_user[1]
+
+
+def json_repr_user(
+        user: User,
+        show_user_fields:bool=False,
+        extra_fields:str|None=None):
+    d = user.as_dict()
+    pprint(d)
+    d["id"] = d["pk"]
+    del d["pwhash"]
+    if show_user_fields and d["first_name"] is not None:
+        uf = {
+            "first_name": d["first_name"],
+            "last_name": d["last_name"],
+            "html1": "",
+            "organizational_id": d["organization"],
+            "course_announcements": 0
+        }
+        d["user_field"] = uf
+        for f in ["first_name", "last_name", "organization"]:
+            del d[f]
+    if extra_fields and "extra_fields" in d:
+        d["extra_fields"] = d["extra"]["data"]
+    d["extra"]
+
+    pprint(d)
+    return d
+
 
 @app.get("/api/v8/users/current")
-async def read_users_me(
+async def read_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
+    show_user_fields: bool | None = False,
+    extra_fields: str | None = None
 ):
-    return current_user
+    print(">>>>>", show_user_fields, extra_fields)
+    return json_repr_user(current_user[1],
+                          show_user_fields=show_user_fields,
+                          extra_fields=extra_fields)
+
 
 @app.put("/api/v8/users/current")
-async def read_users_me(
+async def update_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
     data: dict
 ):
-    # UserInDB(username='stud@isu.ru', email='stud@isu.ru', full_name='Alice Wonderson', disabled=False, hashed_password='****')
-    # {'user': {'extra_fields': {'data': {'course_variant': '',
-    #                                     'digital_education_for_all': True,
-    #                                     'marketing': True,
-    #                                     'research': '0',
-    #                                     'use_course_variant': False},
-    #                            'namespace': 'programming-24'}},
-    #  'user_field': {'first_name': 'Евгений',
-    #                 'last_name': 'Черкашин',
-    #                 'organizational_id': 'ISTU'}}
 
-    pprint(current_user)
+    sess, user = current_user
+    user_field = data["user_field"]
+    user.first_name = user_field["first_name"]
+    user.last_name = user_field["last_name"]
+    user.organization = user_field["organizational_id"]
+
+    user.extra = data["user"]["extra_fields"]
+    session_context.update_user(current_user)
+
+    pprint(user)
     pprint(data)
-    return current_user
+    return json_repr_user(user)
 
 
 # --------------------------------------------------------------------------

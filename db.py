@@ -18,6 +18,7 @@ from sqlalchemy_json import mutable_json_type
 from sqlalchemy import (create_engine, select)
 import bcrypt
 import time
+import base64
 
 from sqlalchemy.exc import NoResultFound
 
@@ -48,10 +49,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     pwhash: Mapped[str] = mapped_column(String(200), nullable=True)
     create_at: Mapped[int] = mapped_column(nullable = False)
-    firs_name: Mapped[str100]
+    first_name: Mapped[str100]
     last_name: Mapped[str100]
     organization: Mapped[str100]
-    disabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    administrator: Mapped[bool] = mapped_column(Boolean, default=False)
     extra: Mapped[js_data]
 
     session: Mapped["UserSession"] = relationship(back_populates="user")
@@ -74,22 +76,27 @@ class SessionContext:
 
     def get_user(self, username):
         stmt = select(User).filter(User.username == username)
-        with self.session() as session:
-            try:
-                user = session.scalars(stmt).one()
-            except NoResultFound:
-                return None
-        return user
+        session = self.session()
+        try:
+            user = session.scalars(stmt).one()
+        except NoResultFound:
+            return (None, None)
+        return (session, user)
+
+    def update_user(self, ctx):
+        (sess, _) = ctx
+        sess.commit()
+        return ctx
 
     def get_current_user(self, token):
-        with self.session() as s:
-            try:
-                stmt = select(UserSession).filter(UserSession.token == token)
-                sess = s.scalars(stmt).one()
-                user = sess.user
-            except NoResultFound:
-                return None
-        return user
+        s = self.session()
+        try:
+            stmt = select(UserSession).filter(UserSession.token == token)
+            sess = s.scalars(stmt).one()
+            user = sess.user
+        except NoResultFound:
+            return (None, None)
+        return (s, user)
 
     def check_password(self, password: str, user: User):
         return bcrypt.checkpw(password.encode("utf-8"), user.pwhash.encode("utf-8"))
@@ -118,9 +125,18 @@ def create_db(echo=True):
             username="admin",
             email="admin@example.com",
             create_at=int(time.time()),
-            pwhash=bcrypt.hashpw("password".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            pwhash=bcrypt.hashpw("password".encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            administrator=True
+        )
+        stud = User(
+            pk=UUID("2d3c2416-8c7f-11ef-93f9-ef12b118bc6a"),
+            username="stud@isu.ru",
+            email="stud@isu.ru",
+            create_at=int(time.time()),
+            pwhash=b"$2b$12$U4nyzBm56pOgJ8xqnKQScOKsPZHSkTUX4iRehQoZaLKCY0lonFz8e".decode("utf-8")
         )
         session.add(admin)
+        session.add(stud)
         session.commit()
 
-# create_db()
+#create_db()
