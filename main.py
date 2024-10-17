@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -150,7 +150,7 @@ def json_repr_user(
             del d[f]
     if extra_fields and "extra_fields" in d:
         d["extra_fields"] = d["extra"]["data"]
-    d["extra"]
+    del d["extra"]
 
     pprint(d)
     return d
@@ -186,6 +186,55 @@ async def update_user(
     pprint(user)
     pprint(data)
     return json_repr_user(user)
+
+@app.get("/api/v8/org/{univ}/courses/{course_name}")
+async def read_user(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    univ:str,
+    course_name:str,
+    request: Request
+):
+    u = str(request.url).split("/api/v8/")[0]+"/"
+    material_url = u
+    d = {
+        "name": univ + "-" + course_name,
+        "hide_after": None,
+        "hidden": False,
+        "cache_version": 2,
+        "spreadsheet_key": None,
+        "hidden_if_registered_after": None,
+        "refreshed_at": "2024-05-30T14:51:47.976+03:00",
+        "locked_exercise_points_visible": True,
+        "paste_visibility": None,
+        "formal_name": None,
+        "certificate_downloadable": False,
+        "certificate_unlock_spec": None,
+        "organization_id": 13,
+        "disabled_status": "enabled",
+        "title": "PYTHON TVT24Eng",
+        "description": "Introduction to programming with Python. Any TVT 24 group.\r\n\r\nYou can select this course instead of your group's course. Inform your teacher if you do!",
+        "material_url": material_url, # "https://programming-24.mooc.fi/",
+        "course_template_id": 511,
+        "hide_submission_results": False,
+        "external_scoreboard_url": None,
+        "organization_slug": univ
+    }
+    return d
+
+
+@app.get("/api/v8/org/{univ}")
+async def read_user(
+    univ:str,
+):
+    d = {
+        "name": "Business College Helsinki",
+        "information": "Tieto- ja viestintätekniikka",
+        "slug": univ,
+        "logo_path": "/rails/active_storage/representations/redirect/eyJfcmFpbHMiOnsiZGF0YSI6OCwicHVyIjoiYmxvYl9pZCJ9fQ==--9e3cb475cb115067465a2304a04d388fddb18d1c/eyJfcmFpbHMiOnsiZGF0YSI6eyJmb3JtYXQiOiJqcGciLCJyZXNpemVfdG9fZmlsbCI6WzEwMCxudWxsXX0sInB1ciI6InZhcmlhdGlvbiJ9fQ==--b34d03e0b131f4c14e9513df4f6090d7828cdc9d/BC-logo-viininpunainen-jpg.jpg",
+        "pinned": False
+    }
+    return d
+
 
 
 # --------------------------------------------------------------------------
