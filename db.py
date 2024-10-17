@@ -1,7 +1,7 @@
 from typing_extensions import Annotated
 
-from sqlalchemy import ( UniqueConstraint, ForeignKey )
-from sqlalchemy import ( String, Uuid as SQL_UUID )
+from sqlalchemy import (UniqueConstraint, ForeignKey)
+from sqlalchemy import (String, Boolean, Uuid as SQL_UUID)
 from sqlalchemy import JSON as SQL_JSON
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -51,6 +51,7 @@ class User(Base):
     firs_name: Mapped[str100]
     last_name: Mapped[str100]
     organization: Mapped[str100]
+    disabled: Mapped[bool] = mapped_column(Boolean, default=True)
     extra: Mapped[js_data]
 
     session: Mapped["UserSession"] = relationship(back_populates="user")
