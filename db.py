@@ -68,14 +68,31 @@ class UserSession(Base):
     user: Mapped["User"] = relationship(back_populates="session")
 
 
+class WrongUserException(Exception):
+    def __init__(self, msg):
+        Exception.__init__(self, msg)
+
+
 class SessionContext:
     def __init__(self, engine=None, echo=False):
         if engine is None:
             engine = create_engine(CONN_STR, echo=echo)
         self.engine = engine
 
-    def get_user(self, username):
-        stmt = select(User).filter(User.username == username)
+    def get_user(self, username=None, email=None, either=False):
+        if either:
+            if username is not None:
+                stmt = select(User).filter(User.username == username or User.email == username)
+            else:
+                raise ValueError("username must be set")
+        else: # either == False, default
+            if username is not None:
+                stmt = select(User).filter(User.username == username)
+            elif email is not None:
+                stmt = select(User).filter(User.email == email)
+            else:
+                raise ValueError("either username or email must be set")
+
         session = self.session()
         try:
             user = session.scalars(stmt).one()
@@ -108,6 +125,27 @@ class SessionContext:
             s.commit()
             token = sess.token
         return token
+
+    def create_user(self, username, email, password, pk=None, extra=None):
+        sess, user = self.get_user(email=email)
+        if user is not None:
+            raise WrongUserException("User already exists")
+        hashpw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        sess = self.session()
+        user = User(
+            pk=UUID(pk),
+            username=username,
+            email=email,
+            create_at=int(time.time()),
+            pwhash=hashpw,
+            administrator=False,
+            extra = extra if extra is not None else None
+        )
+        sess.add(user)
+        sess.commit()
+
+        return (sess, user)
+
 
     def session(self):
         return Session(self.engine)

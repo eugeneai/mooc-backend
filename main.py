@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pprint import pprint
 
-from db import User
+from db import User, WrongUserException
 from db import SessionContext
 
 fake_users_db = {
@@ -58,21 +58,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="oauth/token")
 
 session_context = SessionContext(echo=True)
 
-class User(BaseModel):
-    username: str
-    email: str | None = None
-    full_name: str | None = None
-    disabled: bool | None = None
-
-
-class UserInDB(User):
-    hashed_password: str
 
 def get_user(username: str = None, token: str = None):
     if token is not None:
         user = session_context.get_current_user(token)
     elif username is not None:
-        user = session_context.get_user(username)
+        user = session_context.get_user(username, either=True)
     print(user)
     return user
     # if username in db:
@@ -148,8 +139,8 @@ def json_repr_user(
         d["user_field"] = uf
         for f in ["first_name", "last_name", "organization"]:
             del d[f]
-    if extra_fields and "extra_fields" in d:
-        d["extra_fields"] = d["extra"]["data"]
+    if extra_fields and "extra" in d and "extra_fields" in d["extra"]:
+        d["extra_fields"] = d["extra"]["extra_fields"]
     del d["extra"]
 
     pprint(d)
@@ -180,18 +171,59 @@ async def update_user(
     user.last_name = user_field["last_name"]
     user.organization = user_field["organizational_id"]
 
-    user.extra = data["user"]["extra_fields"]
+    user.extra = user.extra["extra_fields"] = data["user"]["extra_fields"]
     session_context.update_user(current_user)
 
     pprint(user)
     pprint(data)
     return json_repr_user(user)
 
+
+@app.post("/api/v8/users")
+async def add_user(
+    data: dict
+):
+    # {"user":
+    #  {"email":"stud1@isu.ru",
+    #   "password":"ыегв1",
+    #   "password_confirmation":"ыегв1",
+    #   "username":"e97ce51b-af57-448e-bb06-dd5fa86aac00"},
+    #  "origin":"Python Programming MOOC 2024",
+    #  "language":"fi"}
+
+    user = data["user"]
+    email = user["email"]
+    password = user["password"]
+    password_confirmation = user["password_confirmation"]
+    username = user["username"]
+    del data["user"]
+    if password != password_confirmation:
+        raise HTTPException(status_code=400, detail="Password and its confirmation do not match")
+    try:
+        sess, user = session_context.create_user(
+            username=username,
+            email=email,
+            password=password,
+            pk=username,
+            extra={"origin": data})
+    except WrongUserException as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    token = session_context.create_session(user)
+    return {
+        "access_token": token,
+        "username": user.username,
+        "token_type": "bearer",
+        "scope": "public",
+        "create_at": user.create_at
+    }
+
+
 @app.get("/api/v8/org/{univ}/courses/{course_name}")
-async def read_user(
+async def university_course(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    univ:str,
-    course_name:str,
+    univ: str,
+    course_name: str,
     request: Request
 ):
     u = str(request.url).split("/api/v8/")[0]+"/"
@@ -223,8 +255,8 @@ async def read_user(
 
 
 @app.get("/api/v8/org/{univ}")
-async def read_user(
-    univ:str,
+async def university(
+    univ: str,
 ):
     d = {
         "name": "Business College Helsinki",
